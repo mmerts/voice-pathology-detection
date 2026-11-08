@@ -89,7 +89,7 @@ Training uses class-weighted binary cross-entropy and early stopping. \textbf{Ab
 \section{Evaluation Protocols}
 \textbf{P1:} speaker-independent, stratified 5-fold cross-validation on the SVD, following the common protocol of~\cite{huckvale2021}. \textbf{P2:} cross-database transfer---train on the full SVD at 8\,kHz, test on VOICED without fine-tuning (RQ2). \textbf{P3:} results broken down by sex, plus a sex-balanced re-sampled training run (RQ3). \textbf{P4:} the ablations above, evaluated under both P1 and P2. \textbf{Metrics:} unweighted average recall (UAR, the primary metric because the classes are imbalanced), F1, sensitivity, specificity, and ROC AUC, reported as mean $\pm$ standard deviation over folds. Systems are compared with paired tests over folds.
 
-\textbf{Compute and reproducibility:} Google Colab with data, cached \texttt{.npy} features, and checkpoints on Google Drive. Code, fold definitions, and configurations will be public on GitHub (\url{https://github.com/mmsuerkan/voice-pathology-detection}).
+\textbf{Compute and reproducibility:} Google Colab with data, cached \texttt{.npy} features, and checkpoints on Google Drive. Code, fold definitions, and configurations will be public on GitHub (\url{https://github.com/mmerts/voice-pathology-detection}).
 
 \textbf{Risks and mitigations:} (i)~small, imbalanced data---a compact CNN, class weighting, and early stopping; (ii)~pitch tracking may fail on severely pathological voices---frames where tracking fails are masked, and their proportion is itself used as a feature; (iii)~the sampling-rate mismatch between the databases---resolved by training at 8\,kHz for P2.
 
