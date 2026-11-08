@@ -30,12 +30,13 @@ Pathologies such as nodules, polyps, laryngitis, and vocal-fold paralysis change
 
 Many studies report high accuracy on the SVD. However, Huckvale and Buciuleac~\cite{huckvale2021} showed that these numbers are hard to compare: papers use different pathology subsets, audio materials, and cross-validation schemes. When three published systems were re-implemented under one protocol, the differences between them largely disappeared. End-to-end deep learning on small clinical data is not automatically better either: a convolutional--recurrent network trained on raw SVD vowels reached 68\% accuracy~\cite{harar2017}.
 
-In the source--filter model of speech production~\cite{rabiner2007}, voice pathologies act mainly on the \emph{source} (vocal-fold vibration). Spectral-envelope features such as MFCCs~\cite{davis1980} mostly describe the \emph{filter} (the vocal tract). We therefore combine envelope features, source-related measures (LPC residual, F0 perturbation), and a learned spectro-temporal representation, and evaluate them under a strict protocol.
+Most of these disorders alter how regularly the vocal folds vibrate, while the resonances of the vocal tract change comparatively little. Cepstral coefficients such as MFCCs~\cite{davis1980} summarize mainly those resonances~\cite{rabiner2007}. This project therefore pairs them with measurements taken directly from the excitation---the LPC prediction residual and the cycle-to-cycle variation of pitch period and amplitude (jitter, shimmer)---and with a spectrogram-based CNN, and compares all of them on the same folds.
 
 \section{Research Questions}
-\textbf{RQ1:} Under a speaker-independent protocol, does late fusion of a CNN on log-mel spectrograms with interpretable MFCC/LPC/perturbation features outperform an MFCC--GMM baseline?
-\textbf{RQ2:} Which feature family---envelope (MFCC), source (LPC residual, jitter, shimmer), or learned (CNN)---transfers best to a database recorded with different equipment and at a different sampling rate?
-\textbf{RQ3:} Is performance consistent across sexes, or does the classifier rely on sex-related cues?
+The project is built around three questions:
+\textit{Q1 (accuracy).} Does the fused model reach a higher UAR than an MFCC--GMM classifier when no speaker appears in both the training and the test data?
+\textit{Q2 (robustness).} When a model trained on SVD is applied to VOICED, which input---cepstral statistics, excitation measures, or the spectrogram---loses the least performance?
+\textit{Q3 (fairness).} Are the errors evenly distributed between female and male speakers?
 
 \section{Data}
 \textbf{SVD}~\cite{svd,puetzer2008}: German speakers recorded at 50\,kHz, 16-bit. It contains 1002 speakers with a wide range of voice disorders and 851 controls~\cite{huckvale2021}. Each session has /a/, /i/, /u/ at normal, high, low, and rising--falling pitch, plus one sentence. The database is released on Zenodo under CC~BY~4.0 (DOI 10.5281/zenodo.16874898). Of the 38\,GB release, only the normal-pitch /a/ recordings are used, converted from \texttt{.nsp} to \texttt{.wav} with the published converter.
@@ -59,43 +60,37 @@ VOICED & 58 / 150 rec. & 8\,kHz & external test \\
 \textbf{Task:} binary classification, healthy vs.\ any pathology. Sessions from the same speaker are always kept in the same fold to prevent speaker leakage (some SVD speakers have many sessions~\cite{huckvale2021}). For the cross-database experiment, the SVD is downsampled to 8\,kHz with an anti-aliasing filter so that the training and test bandwidths match.
 
 \section{Methodology}
-\textbf{Front end (implemented from scratch in NumPy, CS\,568 topics):}
+Every signal-analysis block is coded by hand with NumPy, without feature-extraction libraries, and checked by unit tests against a reference implementation. The lecture in which each method was covered is given in parentheses.
 \begin{itemize}
-\item \emph{STFT and MFCC} (L6, L9): pre-emphasis, 25\,ms Hamming-windowed frames with a 10\,ms hop, and an FFT, followed by a 40-band mel filterbank, logarithm, and DCT-II. This gives 13 MFCCs plus $\Delta$ coefficients; the same filterbank output without the DCT is the log-mel spectrogram used by the CNN.
-\item \emph{LPC} (L7): order-16 LPC with the autocorrelation method and the Levinson--Durbin recursion~\cite{makhoul1975}. From it, the first three formants and their bandwidths (polynomial roots) are derived. Inverse filtering gives the prediction residual $e[n]=s[n]-\sum_{k=1}^{p}a_k\,s[n-k]$, an estimate of the excitation. Its normalized energy and kurtosis are computed.
-\item \emph{Source/perturbation} (L8): F0 is estimated by autocorrelation. Local jitter and shimmer are computed from consecutive period lengths $T_i$ and peak amplitudes $A_i$; for example, $\text{jitter}=\frac{1}{N-1}\sum_i|T_i-T_{i+1}|\,/\,\bar{T}$.
+\item \emph{Spectral analysis} (L6, L9): pre-emphasis, 25\,ms Hamming-windowed frames with a 10\,ms hop, and an FFT, followed by a 40-band mel filterbank, logarithm, and DCT-II. This gives 13 MFCCs plus $\Delta$ coefficients; the same filterbank output without the DCT is the log-mel spectrogram used by the CNN.
+\item \emph{Linear prediction} (L7): order-16 LPC with the autocorrelation method and the Levinson--Durbin recursion~\cite{makhoul1975}. From it, the first three formants and their bandwidths (polynomial roots) are derived. Inverse filtering gives the prediction residual $e[n]=s[n]-\sum_{k=1}^{p}a_k\,s[n-k]$, an estimate of the excitation. Its normalized energy and kurtosis are computed.
+\item \emph{Pitch and perturbation} (L8): F0 is estimated by autocorrelation. Local jitter and shimmer are computed from consecutive period lengths $T_i$ and peak amplitudes $A_i$; for example, $\text{jitter}=\frac{1}{N-1}\sum_i|T_i-T_{i+1}|\,/\,\bar{T}$.
 \end{itemize}
-Frame-level features are summarized per recording (mean, standard deviation); every block is unit-tested against a reference library.
+Frame-level values are reduced to one vector per recording by their mean and standard deviation.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{fig_pipeline.png}
-\caption{Pipeline. Blue: classical analysis implemented from scratch (lecture numbers in brackets). Orange: learned models.}
+\caption{Pipeline. Blue: signal analysis coded by hand (lecture numbers in brackets). Orange: trained models.}
 \label{fig:pipeline}
 \end{figure}
 
-\textbf{Hypothesis:} pathologies disturb the regularity of the glottal source more than the vocal-tract envelope. Source descriptors should therefore add information that MFCCs and spectrograms do not capture, especially when the recording channel changes.
+\textit{Reference system.} One diagonal-covariance GMM per class~\cite{reynolds1995} is trained on frame-level MFCC+$\Delta$ vectors. A recording is assigned to the class with the larger total log-likelihood over its frames; the number of mixture components is tuned by inner cross-validation.
 
-\textbf{Baseline:} two diagonal-covariance GMMs~\cite{reynolds1995} (healthy, pathological) trained on frame-level MFCC+$\Delta$ vectors. A recording is classified by the log-likelihood ratio summed over its frames, and the number of mixtures is chosen by inner cross-validation.
+\textit{Fused model (Fig.~\ref{fig:pipeline}).} A small CNN---three convolution, batch-normalization and pooling stages followed by global average pooling---reads a fixed-length log-mel excerpt. In parallel, a two-layer MLP reads the standardized vector of cepstral statistics, LPC values and perturbation measures. The two embeddings are concatenated and mapped to a single sigmoid output. Training uses class-weighted binary cross-entropy with early stopping. To see where any gain comes from, the model is also retrained with one input branch removed at a time.
 
-\textbf{Proposed (Fig.~\ref{fig:pipeline}):}
-\begin{itemize}
-\item a small CNN (three convolutional blocks with batch normalization and pooling, then global average pooling) on a fixed-length log-mel excerpt;
-\item a two-layer MLP on the standardized vector of MFCC statistics, LPC features, and perturbation measures;
-\item concatenation of the two embeddings followed by a sigmoid output (late fusion).
-\end{itemize}
-Training uses class-weighted binary cross-entropy and early stopping. \textbf{Ablations:} CNN only, envelope features only, source features only, and full fusion.
+\textit{Prediction.} Since the disorders act mainly on vocal-fold vibration, we expect the excitation measures to degrade least when the microphone and sampling rate change (Q2), and the spectrogram branch to give the best accuracy within SVD (Q1).
 
-\section{Evaluation Protocols}
-\textbf{P1:} speaker-independent, stratified 5-fold cross-validation on the SVD, following the common protocol of~\cite{huckvale2021}. \textbf{P2:} cross-database transfer---train on the full SVD at 8\,kHz, test on VOICED without fine-tuning (RQ2). \textbf{P3:} results broken down by sex, plus a sex-balanced re-sampled training run (RQ3). \textbf{P4:} the ablations above, evaluated under both P1 and P2. \textbf{Metrics:} unweighted average recall (UAR, the primary metric because the classes are imbalanced), F1, sensitivity, specificity, and ROC AUC, reported as mean $\pm$ standard deviation over folds. Systems are compared with paired tests over folds.
+\section{Evaluation and Plan}
+\textit{Experiments.} E1 (Q1): stratified 5-fold cross-validation on SVD with speaker-disjoint folds, as recommended in~\cite{huckvale2021}. E2 (Q2): every system is retrained on all SVD data at 8\,kHz and scored on VOICED with no adaptation. E3 (Q3): E1 results are split by sex, and E1 is repeated with a sex-balanced training set. The branch-removal runs are reported for both E1 and E2.
 
-\textbf{Compute and reproducibility:} Google Colab with data, cached \texttt{.npy} features, and checkpoints on Google Drive. Code, fold definitions, and configurations will be public on GitHub (\url{https://github.com/mmerts/voice-pathology-detection}).
+\textit{Metrics.} The primary score is the unweighted average recall (UAR), because the two classes are not the same size. F1, sensitivity, specificity and ROC AUC are also given, as mean $\pm$ standard deviation over the folds, and systems are compared with paired tests on the fold scores.
 
-\textbf{Risks and mitigations:} (i)~small, imbalanced data---a compact CNN, class weighting, and early stopping; (ii)~pitch tracking may fail on severely pathological voices---frames where tracking fails are masked, and their proportion is itself used as a feature; (iii)~the sampling-rate mismatch between the databases---resolved by training at 8\,kHz for P2.
+\textit{Implementation.} Experiments run on Google Colab; audio subsets, cached \texttt{.npy} features and model checkpoints are kept on Google Drive. The code and the exact fold lists are published at \url{https://github.com/mmerts/voice-pathology-detection}.
 
-\textbf{Timeline:} by 20 Nov, data and front end with unit tests; by 4 Dec, GMM baseline and the cross-validation framework; by 18 Dec, CNN, fusion, ablations, and P2--P3; by 25 Dec, final paper and code; 28 Dec--1 Jan, presentation.
+\textit{Anticipated difficulties.} The data set is small and unbalanced, so the CNN is kept compact and trained with class weights and early stopping. Pitch tracking can fail on strongly disordered voices; such frames are excluded from jitter and shimmer, and the share of excluded frames becomes an extra feature. The two databases differ in sampling rate, which is why E2 is run entirely at 8\,kHz.
 
-\textbf{Expected outcomes:} a reproducible, speaker-independent comparison of classical, learned, and fused features; an estimate of how much accuracy survives a change of database; and evidence on whether source descriptors add information beyond envelope and CNN features.
+\textit{Schedule and deliverables.} 20 Nov: data prepared and analysis blocks passing their tests. 4 Dec: GMM reference and fold framework. 18 Dec: fused model, branch-removal runs, E2 and E3. 25 Dec: final paper and code. 28 Dec--1 Jan: presentation. The final report will contain one table comparing the reference system, each single branch and the fused model under E1 and E2, which answers Q1--Q3 directly.
 
 \begin{thebibliography}{9}
 \bibitem{huckvale2021}
