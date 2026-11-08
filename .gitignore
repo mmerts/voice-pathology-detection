@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data and generated artefacts (never commit audio or features)
+data/raw/
+data/interim/
+data/features/
+*.wav
+*.nsp
+*.npy
+*.npz
+checkpoints/
+runs/
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.synctex.gz
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
